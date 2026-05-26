@@ -24,7 +24,7 @@ import {
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer, AreaChart, Area, Legend } from 'recharts';
 
-export default function App() {
+export default function OrderManager() {
   const [activeTab, setActiveTab] = useState('dashboard');
   
   const [inventory, setInventory] = useState([
