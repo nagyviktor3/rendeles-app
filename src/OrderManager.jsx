@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { 
   Home, 
   ShoppingCart, 
@@ -24,22 +24,19 @@ import {
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer, AreaChart, Area, Legend } from 'recharts';
 
+// A TE GOOGLE TÁBLÁZAT ADATBÁZIS LINKED:
+const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxu6bzc8ZH1cMWM4nSavRJ47GNC_-z-p4TLwshgKh4q1D1zciOADYitQOCA6icOWdU/exec";
+
 export default function OrderManager() {
   const [activeTab, setActiveTab] = useState('dashboard');
   
-  const [inventory, setInventory] = useState([
-    { id: 1, name: 'Vape - 8', brand: 'Vape', variant: '8', quantity: 1, buyPrice: 5800 },
-    { id: 2, name: 'Vape - 6', brand: 'Vape', variant: '6', quantity: 1, buyPrice: 5800 },
-    { id: 3, name: 'Vape - 3', brand: 'Vape', variant: '3', quantity: 2, buyPrice: 5500 },
-    { id: 4, name: 'Vape - 10', brand: 'Vape', variant: '10', quantity: 2, buyPrice: 5500 },
-    { id: 5, name: 'Vape - 2', brand: 'Vape', variant: '2', quantity: 2, buyPrice: 5500 },
-    { id: 6, name: 'Vape - 9', brand: 'Vape', variant: '9', quantity: 2, buyPrice: 5500 },
-    { id: 7, name: 'Vape - 1', brand: 'Vape', variant: '1', quantity: 2, buyPrice: 5500 },
-    { id: 8, name: 'Vape - 4', brand: 'Vape', variant: '4', quantity: 2, buyPrice: 5500 },
-    { id: 9, name: 'Vape - 7', brand: 'Vape', variant: '7', quantity: 2, buyPrice: 5500 },
-    { id: 10, name: 'Vape - 8', brand: 'Vape', variant: '8', quantity: 3, buyPrice: 5500 },
-  ]);
+  // Állapotok a szinkronizációhoz
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const isFirstRender = useRef(true);
 
+  // Adatok (Most már kezdetben üresek, a felhőből jönnek!)
+  const [inventory, setInventory] = useState([]);
   const [pendingOrders, setPendingOrders] = useState([]);
   const [historyItems, setHistoryItems] = useState([]);
 
@@ -68,7 +65,55 @@ export default function OrderManager() {
 
   const lastXClickRef = useRef({ time: 0, variantWasEmpty: false, type: '' });
 
-  // Készlet és rendelések szinkronizáló motorja
+  // --- ADATBÁZIS SZINKRONIZÁCIÓ (FELHŐ) ---
+
+  // 1. Adatok lekérése a Google Táblázatból induláskor
+  useEffect(() => {
+    fetch(SCRIPT_URL)
+      .then(res => res.json())
+      .then(data => {
+        if (data) {
+          setInventory(data.inventory || []);
+          setPendingOrders(data.pendingOrders || []);
+          setHistoryItems(data.historyItems || []);
+        }
+        setIsLoading(false);
+      })
+      .catch(err => {
+        console.error("Hiba az adatok letöltésekor:", err);
+        setIsLoading(false); // Hiba esetén is beengedjük, legfeljebb üres lesz
+      });
+  }, []);
+
+  // 2. Automatikus mentés a felhőbe minden változáskor
+  useEffect(() => {
+    if (isLoading) return; // Ne mentsünk semmit, amíg tölt az oldal!
+    
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return; // A legelső beállításkor ne mentsünk feleslegesen
+    }
+
+    setIsSaving(true);
+    fetch(SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // Ez fontos a Google miatt
+      body: JSON.stringify({
+        inventory,
+        pendingOrders,
+        historyItems
+      })
+    })
+    .then(() => setIsSaving(false))
+    .catch(err => {
+      console.error("Hiba a mentéskor:", err);
+      setIsSaving(false);
+    });
+
+  }, [inventory, pendingOrders, historyItems, isLoading]);
+
+  // --- KÉSZLET LOGIKA ---
+
   const recalculateOrdersWithInventory = (orders, inv) => {
     let stockMap = {};
     inv.forEach(item => {
@@ -205,7 +250,8 @@ export default function OrderManager() {
     }
   };
 
-  // Statisztikák és Előrejelzések
+  // --- STATISZTIKÁK ---
+
   const stats = useMemo(() => {
     let soldItemsCount = 0;
     let totalProfit = 0;
@@ -260,6 +306,8 @@ export default function OrderManager() {
 
     return { totalProfit, totalRev, totalCost, soldItemsCount, currentStockCount, successSalesCount, topProduct, chartData, weeklyPrediction, monthlyPrediction };
   }, [historyItems, inventory]);
+
+  // --- ESEMÉNYKEZELŐK ---
 
   const handleSmartOrder = async () => {
     if (!smartInput.trim()) return;
@@ -483,7 +531,6 @@ export default function OrderManager() {
     setPendingOrders(recalculateOrdersWithInventory(actualOrders, inventory));
   };
 
-  // Múltbéli eladás rögzítése
   const handleAddHistoryVariant = () => {
     if (!historyWizard.currentVariant) return;
     let updatedItems = [...historyWizard.items];
@@ -537,7 +584,22 @@ export default function OrderManager() {
     setHistoryItems(prev => prev.filter(item => item.id !== id));
   };
 
-  // --- NÉZETEK ---
+  // --- RENDER FÜGGVÉNYEK ---
+
+  // Töltőképernyő amíg a Google Sheet válaszol
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4">
+        <Loader2 className="animate-spin text-indigo-600 mb-6" size={56} />
+        <h2 className="text-3xl font-black text-gray-800 mb-2">DropManager</h2>
+        <p className="text-gray-500 font-medium text-center">
+          Adatbázis szinkronizálása...<br/>
+          <span className="text-sm text-gray-400">Kapcsolódás a Google Táblázathoz</span>
+        </p>
+      </div>
+    );
+  }
+
   const renderChartsModal = () => (
     <div className="fixed inset-0 bg-slate-50 z-[100] overflow-y-auto pb-24 animate-in slide-in-from-bottom-8">
       <div className="sticky top-0 bg-white border-b border-gray-200 p-4 shadow-sm flex justify-between items-center z-10">
@@ -1245,10 +1307,15 @@ export default function OrderManager() {
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-900 pb-20">
-      <div className="bg-white border-b border-gray-200 p-4 sticky top-0 z-10 shadow-sm flex justify-center items-center">
-        <h1 className="text-xl font-black bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-indigo-600 tracking-tight">
+      <div className="bg-white border-b border-gray-200 p-4 sticky top-0 z-10 shadow-sm flex justify-between items-center">
+        <div className="w-6"></div> {/* Üres hely, hogy a logó középen maradjon */}
+        <h1 className="text-xl font-black bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-indigo-600 tracking-tight text-center">
           DropManager
         </h1>
+        <div className="w-6 flex justify-end">
+          {/* Mentés/Betöltés jelző animáció */}
+          {isSaving ? <Loader2 className="animate-spin text-blue-400" size={20} /> : <Check className="text-green-500" size={20} />}
+        </div>
       </div>
 
       <main className="max-w-md mx-auto relative h-full">
