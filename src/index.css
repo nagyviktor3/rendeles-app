@@ -1,0 +1,15 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  margin: 0;
+  padding: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Mobilokon a gombok kattintásakor megjelenő kék árnyék kikapcsolása */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
